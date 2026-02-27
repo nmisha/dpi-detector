@@ -242,7 +242,7 @@ async def run_domains_test(semaphore: asyncio.Semaphore, stub_ips: set, domains:
 async def run_tcp_test(semaphore: asyncio.Semaphore, tcp_items: list) -> dict:
     """Тест 3: FAT-header TCP блокировка."""
     console.print(
-        f"\n[bold]Проверка TCP 16-20KB блока[/bold]  "
+        f"\n[bold]Проверка TCP 16-20KB блокировки[/bold]  "
         f"[dim]Целей: {len(tcp_items)} | timeout: {config.FAT_CONNECT_TIMEOUT}s[/dim]"
     )
     console.print(
