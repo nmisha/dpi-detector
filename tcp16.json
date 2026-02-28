@@ -1,0 +1,16 @@
+[
+    {"id": "DE.HE-01", "asn": "24940", "provider": "Hetzner", "ip": "91.98.156.82", "port": 443},
+    {"id": "FI.HE-02", "asn": "24940", "provider": "Hetzner", "ip": "46.62.154.37", "port": 443},
+    {"id": "US.HE-03", "asn": "213230", "provider": "Hetzner Cloud 2", "ip": "5.161.249.234", "port": 443},
+    {"id": "US.HE-04", "asn": "213230", "provider": "Hetzner Cloud 2", "ip": "178.156.198.203", "port": 443},
+    {"id": "US.HE-05", "asn": "212317", "provider": "Hetzner Cloud 3", "ip": "5.78.155.139", "port": 443},
+    {"id": "US.HE-06", "asn": "212317", "provider": "Hetzner Cloud 3", "ip": "5.78.82.109", "port": 443},
+    {"id": "SG.HE-07", "asn": "215859", "provider": "Hetzner Cloud 4", "ip": "5.223.50.8", "port": 443},
+    {"id": "SG.HE-08", "asn": "215859", "provider": "Hetzner Cloud 4", "ip": "5.223.68.131", "port": 443},
+    {"id": "CA.CF-01", "asn": "13335", "provider": "Cloudflare", "ip": "172.67.70.222", "port": 443},
+    {"id": "US.CF-02", "asn": "13335", "provider": "Cloudflare", "ip": "172.67.181.54", "port": 443},
+    {"id": "CA.CF-03", "asn": "13335", "provider": "Cloudflare", "ip": "104.18.63.125", "port": 443},
+    {"id": "US.CF-04", "asn": "13335", "provider": "Cloudflare", "ip": "104.19.153.39", "port": 443},
+    {"id": "CA.CF-05", "asn": "13335", "provider": "Cloudflare", "ip": "104.18.46.6", "port": 443},
+    {"id": "CA.CF-06", "asn": "13335", "provider": "Cloudflare", "ip": "104.16.59.56", "port": 443}
+]
