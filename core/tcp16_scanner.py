@@ -34,16 +34,20 @@ async def _fat_probe_keepalive(
     rtt_measurements = []
     dynamic_timeout = None
 
-    for i in range(chunks_count):
-        # Берем уникальный кусок мусора для заголовка
-        start_idx = random.randint(0, len(RANDOM_POOL) - chunk_size - 1)
-        headers = base_headers.copy()
-        headers["X-Pad"] = RANDOM_POOL[start_idx:start_idx + chunk_size]
-        current_timeout = dynamic_timeout if dynamic_timeout is not None else config.FAT_READ_TIMEOUT
+    extensions = {}
+    if sni and port != 80:
+        extensions["sni_hostname"] = sni
 
-        extensions = {}
-        if sni and port != 80:
-            extensions["sni_hostname"] = sni
+    for i in range(chunks_count):
+        headers = base_headers.copy()
+
+        # i=0 — чистый запрос без X-Pad: только проверяем что сервер живой.
+        # i>=1 — добавляем мусор
+        if i > 0:
+            start_idx = random.randint(0, len(RANDOM_POOL) - chunk_size - 1)
+            headers["X-Pad"] = RANDOM_POOL[start_idx:start_idx + chunk_size]
+
+        current_timeout = dynamic_timeout if dynamic_timeout is not None else config.FAT_READ_TIMEOUT
 
         start_time = time.time()
 
@@ -59,13 +63,10 @@ async def _fat_probe_keepalive(
             elapsed = time.time() - start_time
             status = resp.status_code
 
-            # Первый запрос используем как Alive-чек
             if i == 0:
                 alive_str = f"Yes ({status})"
-                if status in (431, 414, 400):
-                    return alive_str, "[yellow]WARN[/yellow]", f"HTTP {status} (Header limits)"
 
-            # Расчет динамического таймаута по первым двум успешным запросам
+            # Динамический таймаут по первым двум успешным запросам
             if i < 2:
                 rtt_measurements.append(elapsed)
                 if len(rtt_measurements) == 2:
@@ -74,8 +75,12 @@ async def _fat_probe_keepalive(
                     dynamic_timeout = min(dyn_t, config.FAT_READ_TIMEOUT)
 
             if "close" in resp.headers.get("Connection", "").lower():
+                if i == 0:
+                    # Сервер не держит keep-alive — нельзя тестировать
+                    return alive_str, "[yellow]WARN[/yellow]", "No keep-alive"
                 if i < (chunks_count - 1):
-                    return alive_str, "[yellow]WARN[/yellow]", f"Keep-Alive dropped at {i*4}KB"
+                    # Закрыл соединение после того как пошёл мусор — блокировка
+                    return alive_str, "[bold red]DETECTED[/bold red]", f"Conn closed at {i*4}KB"
 
             await asyncio.sleep(0.05)
 
