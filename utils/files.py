@@ -76,3 +76,20 @@ def load_tcp_targets(filepath: str = "tcp16.json") -> List[Any]:
     except Exception as e:
         console.print(f"[bold red]Ошибка чтения {filepath}: {e}[/bold red]")
         wait_and_exit()
+def load_whitelist_sni(filepath: str = "whitelist_sni.txt") -> list:
+    """Загружает список SNI для белого списка из файла."""
+    path = get_resource_path(filepath)
+
+    if not path.exists():
+        console.print(f"[yellow]Файл {filepath} не найден, тест 4 недоступен.[/yellow]")
+        return []
+
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return [
+                line.strip() for line in f
+                if line.strip() and not line.strip().startswith('#')
+            ]
+    except Exception as e:
+        console.print(f"[yellow]Ошибка чтения {filepath}: {e}[/yellow]")
+        return []

@@ -19,15 +19,16 @@ except ImportError as e:
 import config
 from cli.console import console
 from cli.ui import ask_test_selection, print_legend
-from cli.runners import run_domains_test, run_tcp_test
+from cli.runners import run_domains_test, run_tcp_test, run_whitelist_sni_test
 from core.dns_scanner import check_dns_integrity, collect_stub_ips_silently
-from utils.files import load_domains, load_tcp_targets, get_base_dir
+from utils.files import load_domains, load_tcp_targets, load_whitelist_sni, get_base_dir
 
 CURRENT_VERSION = "2.0"
 GITHUB_REPO     = "Runnin4ik/dpi-detector"
 
 DOMAINS         = load_domains()
 TCP_16_20_ITEMS = load_tcp_targets()
+WHITELIST_SNI   = load_whitelist_sni()
 
 
 async def _fetch_latest_version() -> Optional[str]:
@@ -153,6 +154,7 @@ async def main():
     run_dns     = "1" in selection
     run_domains = "2" in selection
     run_tcp     = "3" in selection
+    run_wl_sni  = "4" in selection
 
     save_to_file = False
     result_path  = None
@@ -193,8 +195,15 @@ async def main():
         if run_tcp:
             tcp_stats = await run_tcp_test(semaphore, TCP_16_20_ITEMS)
 
+        # ── Белые SNI ─────────────────────────────────────────────────────────
+        if run_wl_sni:
+            if WHITELIST_SNI:
+                await run_whitelist_sni_test(semaphore, TCP_16_20_ITEMS, WHITELIST_SNI)
+            else:
+                console.print("[yellow]Файл whitelist_sni.txt пуст или не найден — тест 4 пропущен.[/yellow]")
+
         # ── Итоговая сводка ───────────────────────────────────────────────────
-        active_tests = sum([run_dns, run_domains, run_tcp])
+        active_tests = sum([run_dns, run_domains, run_tcp, run_wl_sni])
         if active_tests >= 2:
             console.print()
             summary_lines = _format_summary(

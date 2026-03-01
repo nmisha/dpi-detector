@@ -18,7 +18,7 @@ from utils.network import get_resolved_ip
 
 async def _resolve_worker(domain_raw: str, semaphore: asyncio.Semaphore, stub_ips: set) -> dict:
     """
-    Фаза 0: DNS-резолв (IPv4 + IPv6).
+    Фаза 0: DNS-резолв (IPv4).
     dns_fake: False = чисто, True = заглушка, None = DNS FAIL.
 
     Замечание по stub_ips: stub_ips собирается через прямой UDP к публичным серверам.
@@ -30,15 +30,12 @@ async def _resolve_worker(domain_raw: str, semaphore: asyncio.Semaphore, stub_ip
 
     async with semaphore:
         resolved_ipv4 = await get_resolved_ip(domain, family=socket.AF_INET)
-        resolved_ipv6 = await get_resolved_ip(domain, family=socket.AF_INET6)
 
     entry = {
         "domain":       domain,
         "resolved_ipv4": resolved_ipv4,
-        "resolved_ipv6": resolved_ipv6,
         "dns_fake":     False,
         "t13v4_res":    ("[dim]—[/dim]", "", 0.0),
-        "t13v6_res":    ("[dim]—[/dim]", "", 0.0),
         "t12_res":      ("[dim]—[/dim]", "", 0.0),
         "http_res":     ("[dim]—[/dim]", ""),
     }
@@ -46,7 +43,6 @@ async def _resolve_worker(domain_raw: str, semaphore: asyncio.Semaphore, stub_ip
     if resolved_ipv4 is None:
         fail = "[yellow]DNS FAIL[/yellow]"
         entry["t13v4_res"] = (fail, "Домен не найден", 0.0)
-        entry["t13v6_res"] = (fail, "Домен не найден", 0.0)
         entry["t12_res"]   = (fail, "Домен не найден", 0.0)
         entry["http_res"]  = (fail, "Домен не найден")
         entry["dns_fake"]  = None
@@ -56,13 +52,9 @@ async def _resolve_worker(domain_raw: str, semaphore: asyncio.Semaphore, stub_ip
         fake = "[bold red]DNS FAKE[/bold red]"
         detail = f"DNS подмена -> {resolved_ipv4}"
         entry["t13v4_res"] = (fake, detail, 0.0)
-        entry["t13v6_res"] = (fake, detail, 0.0)
         entry["t12_res"]   = (fake, detail, 0.0)
         entry["http_res"]  = (fake, detail)
         entry["dns_fake"]  = True
-
-    if resolved_ipv6 is None:
-        entry["t13v6_res"] = ("[dim]Нет IPv6[/dim]", "", 0.0)
 
     return entry
 
@@ -75,9 +67,6 @@ async def _tls_worker(
 ) -> None:
     """Фаза TLS: пишет результат в entry in-place."""
     if entry["dns_fake"] is not False:
-        return
-    # IPv6 тест пропускаем если адреса нет
-    if tls_key == "t13v6_res" and entry["resolved_ipv6"] is None:
         return
     try:
         result = await check_domain_tls(entry["domain"], client, semaphore)
@@ -148,54 +137,44 @@ async def _run_phase_with_progress(tasks: list, description: str) -> None:
 # ── Тест 2: домены ────────────────────────────────────────────────────────────
 
 async def run_domains_test(semaphore: asyncio.Semaphore, stub_ips: set, domains: list) -> dict:
-    """Тест 2: TLS1.3 IPv4 → TLS1.3 IPv6 → TLS1.2 → HTTP injection."""
+    """Тест 2: TLS1.3 IPv4 → TLS1.2 → HTTP injection."""
     console.print(
         f"\n[bold]Проверка доступности доменов[/bold]  "
         f"[dim]Целей: {len(domains)} | timeout: {config.TIMEOUT}s[/dim]\n"
     )
 
     table = Table(show_header=True, header_style="bold magenta", border_style="dim")
-    table.add_column("Домен",      style="cyan", no_wrap=True, width=18)
-    table.add_column("HTTP",       justify="center")
-    table.add_column("TLS1.2",     justify="center")
-    table.add_column("TLS1.3 v4",  justify="center")
-    table.add_column("TLS1.3 v6",  justify="center")
-    table.add_column("Детали",     style="dim", no_wrap=True)
+    table.add_column("Домен",   style="cyan", no_wrap=True, width=18)
+    table.add_column("HTTP",    justify="center")
+    table.add_column("TLS1.2",  justify="center")
+    table.add_column("TLS1.3",  justify="center")
+    table.add_column("Детали",  style="dim", no_wrap=True)
 
     # Фаза 0: DNS-резолв
     entries = await _run_with_progress(
         [_resolve_worker(d, semaphore, stub_ips) for d in domains],
-        "Фаза 0/4: DNS-резолв..."
+        "Фаза 0/3: DNS-резолв..."
     )
 
-    # Один клиент на фазу — SSL-контекст создаётся один раз, не на каждый домен
-    client_t13v4 = create_dpi_client("TLSv1.3")
-    # IPv6: используем тот же клиент (httpx сам выберет IPv6 если резолвер вернул AAAA)
-    # Для принудительного IPv6 нужен отдельный резолвер — пока используем системный
-    client_t13v6 = create_dpi_client("TLSv1.3")
-    client_t12   = create_dpi_client("TLSv1.2")
-    client_http  = create_dpi_client()
+    client_t13 = create_dpi_client("TLSv1.3")
+    client_t12 = create_dpi_client("TLSv1.2")
+    client_http = create_dpi_client()
 
     try:
         await _run_phase_with_progress(
-            [_tls_worker(e, client_t13v4, "t13v4_res", semaphore) for e in entries],
-            "Фаза 1/4: TLS 1.3 IPv4..."
-        )
-        await _run_phase_with_progress(
-            [_tls_worker(e, client_t13v6, "t13v6_res", semaphore) for e in entries],
-            "Фаза 2/4: TLS 1.3 IPv6..."
+            [_tls_worker(e, client_t13, "t13v4_res", semaphore) for e in entries],
+            "Фаза 1/3: TLS 1.3..."
         )
         await _run_phase_with_progress(
             [_tls_worker(e, client_t12, "t12_res", semaphore) for e in entries],
-            "Фаза 3/4: TLS 1.2..."
+            "Фаза 2/3: TLS 1.2..."
         )
         await _run_phase_with_progress(
             [_http_worker(e, client_http, semaphore) for e in entries],
-            "Фаза 4/4: HTTP..."
+            "Фаза 3/3: HTTP..."
         )
     finally:
-        await client_t13v4.aclose()
-        await client_t13v6.aclose()
+        await client_t13.aclose()
         await client_t12.aclose()
         await client_http.aclose()
 
@@ -204,15 +183,14 @@ async def run_domains_test(semaphore: asyncio.Semaphore, stub_ips: set, domains:
     dns_fail_count = 0
     resolved_ips_counter: dict = {}
     for r in rows:
-        resolved_ip = r[6] if len(r) > 6 else None
+        resolved_ip = r[5] if len(r) > 5 else None
         if resolved_ip and stub_ips and resolved_ip in stub_ips:
             resolved_ips_counter[resolved_ip] = resolved_ips_counter.get(resolved_ip, 0) + 1
-        # Проверяем колонки HTTP(1), TLS1.2(2), TLS1.3v4(3)
         if any("DNS FAIL" in r[col] for col in (1, 2, 3)):
             dns_fail_count += 1
 
     for r in rows:
-        table.add_row(*r[:6])
+        table.add_row(*r[:5])
     console.print(table)
 
     confirmed_stubs = {ip: c for ip, c in resolved_ips_counter.items() if stub_ips and ip in stub_ips}
@@ -226,11 +204,10 @@ async def run_domains_test(semaphore: asyncio.Semaphore, stub_ips: set, domains:
         console.print("[yellow]Рекомендация: Настройте DoH/DoT на вашем устройстве, роутере или VPN[/yellow]\n")
 
     block_markers = ("TLS DPI", "TLS MITM", "TLS BLOCK", "ISP PAGE", "BLOCKED", "TCP RST", "TCP ABORT")
-    # cols: HTTP=1, TLS1.2=2, TLS1.3v4=3, TLS1.3v6=4
     return {
         "total":    len(domains),
         "ok":       sum(1 for r in rows if "OK" in r[3] or "OK" in r[2]),
-        "blocked":  sum(1 for r in rows if any(m in r[c] for c in (1,2,3,4) for m in block_markers)),
+        "blocked":  sum(1 for r in rows if any(m in r[c] for c in (1,2,3) for m in block_markers)),
         "timeout":  sum(1 for r in rows if "TIMEOUT" in r[3] or "TIMEOUT" in r[2]),
         "dns_fail": sum(1 for r in rows if "DNS FAIL" in r[3]),
     }
@@ -290,3 +267,120 @@ async def run_tcp_test(semaphore: asyncio.Semaphore, tcp_items: list) -> dict:
         console.print("[dim]Смешанные результаты указывают на балансировку DPI у провайдера[/dim]")
 
     return {"total": len(tcp_items), "ok": passed, "blocked": blocked, "mixed": mixed}
+
+# ── Тест 4: Поиск белых SNI для ASN ──────────────────────────────────────────
+
+async def run_whitelist_sni_test(semaphore: asyncio.Semaphore, tcp_items: list, whitelist_sni: list) -> None:
+    """Тест 4: Поиск белых SNI для ASN.
+
+    Алгоритм:
+      1. Для каждой AS берём один IP с портом 443.
+      2. Запускаем стандартный TCP 16-20KB тест с дефолтным SNI.
+      3. Для тех AS где DETECTED — перебираем SNI из whitelist_sni.txt до первого OK.
+      4. Выводим таблицу: ASN | Провайдер | Alive | WL SNI | Найденный SNI / статус.
+    """
+    # Фильтрация: только порт 443, по одному IP на AS
+    seen_asn: set = set()
+    candidates = []
+    for item in tcp_items:
+        port = int(item.get("port", 443))
+        if port != 443:
+            continue
+        asn_raw = str(item.get("asn", "")).strip()
+        asn_key = asn_raw.upper().lstrip("AS") if asn_raw else item["ip"]
+        if asn_key in seen_asn:
+            continue
+        seen_asn.add(asn_key)
+        candidates.append(item)
+
+    if not candidates:
+        console.print("[yellow]Нет целей с портом 443 для теста белых SNI.[/yellow]")
+        return
+
+    console.print(
+        f"\n[bold]Поиск белых SNI для ASN[/bold]  "
+        f"[dim]AS: {len(candidates)} | SNI в списке: {len(whitelist_sni)} | timeout: {config.FAT_CONNECT_TIMEOUT}s[/dim]"
+    )
+
+    # Фаза 1: базовый тест с дефолтным SNI
+    base_results = await _run_with_progress(
+        [_tcp16_worker(item, semaphore) for item in candidates],
+        "Фаза 1/2: Базовая проверка...",
+    )
+    # base_results[i] = [id, asn_str, provider, alive_str, status, detail]
+
+    # Фаза 2: для DETECTED ищем белый SNI
+    detected_indices = [
+        i for i, r in enumerate(base_results) if "DETECTED" in r[4]
+    ]
+
+    # sni_result[i] = (wl_status_str, found_sni)
+    sni_result: dict = {}
+
+    async def _probe_sni(idx: int, item: dict) -> None:
+        ip = item["ip"]
+        for sni_candidate in whitelist_sni:
+            sni_candidate = sni_candidate.strip()
+            if not sni_candidate:
+                continue
+            # Используем внутренний семафор на 1, внешний semaphore уже захвачен в check_tcp_16_20
+            _alive, status_s, _detail = await check_tcp_16_20(ip, 443, sni_candidate, semaphore)
+            if "OK" in status_s:
+                sni_result[idx] = ("[green]OK[/green]", sni_candidate)
+                return
+        sni_result[idx] = ("[red]НЕ НАЙДЕН[/red]", "")
+
+    if detected_indices:
+        total = len(detected_indices)
+        probe_tasks = [_probe_sni(i, candidates[i]) for i in detected_indices]
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), transient=True) as progress:
+            task_id = progress.add_task(f"Фаза 2/2: Перебор SNI...", total=total)
+            done_count = 0
+            for future in asyncio.as_completed(probe_tasks):
+                await future
+                done_count += 1
+                progress.update(task_id, completed=done_count,
+                                description=f"Фаза 2/2: Перебор SNI... ({done_count}/{total})")
+
+    # Вывод итоговой таблицы
+    table = Table(show_header=True, header_style="bold magenta", border_style="dim")
+    table.add_column("ASN",       style="yellow")
+    table.add_column("Провайдер", style="cyan")
+    table.add_column("Alive",     justify="center")
+    table.add_column("WL SNI",    justify="center")
+    table.add_column("Детали",    style="dim", no_wrap=True)
+
+    found_count = 0
+    for i, (item, base_row) in enumerate(zip(candidates, base_results)):
+        asn_str     = base_row[1]
+        provider    = base_row[2]
+        alive_str   = base_row[3]
+        base_status = base_row[4]
+        base_detail = base_row[5]
+
+        if "DETECTED" in base_status and i in sni_result:
+            wl_status, found_sni = sni_result[i]
+            if found_sni:
+                detail_str = found_sni
+                found_count += 1
+            else:
+                detail_str = base_detail
+        elif "OK" in base_status:
+            wl_status  = "[dim]—[/dim]"
+            detail_str = "[dim]Не заблокирован[/dim]"
+        else:
+            wl_status  = "[dim]—[/dim]"
+            detail_str = base_detail
+
+        table.add_row(asn_str, provider, alive_str, wl_status, detail_str)
+
+    console.print(table)
+
+    if found_count > 0:
+        console.print(
+            f"[green]Найдено белых SNI: {found_count} из {len(detected_indices)} заблокированных AS[/green]"
+        )
+    elif detected_indices:
+        console.print(
+            f"[yellow]Белые SNI не найдены ни для одной из {len(detected_indices)} заблокированных AS[/yellow]"
+        )
