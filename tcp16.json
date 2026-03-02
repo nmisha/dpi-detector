@@ -78,7 +78,6 @@
     {"id": "OR-05", "asn": "54253", "provider": "Oracle HTTP", "ip": "79.72.37.28", "port": 80},
     {"id": "OR-06", "asn": "54253", "provider": "Oracle", "ip": "158.178.160.240", "port": 443},
     {"id": "OR-07", "asn": "54253", "provider": "Oracle", "ip": "217.142.192.157", "port": 443},
-    {"id": "OR-08", "asn": "54253", "provider": "Oracle", "ip": "158.178.160.240", "port": 443},
 
     {"id": "OR-09", "asn": "1219", "provider": "Oracle", "ip": "156.151.59.19", "port": 443},
 
